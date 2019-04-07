@@ -5,6 +5,8 @@ import {
   attributes,
   INode,
   idNodeMap,
+  snapshotOptions,
+  serializeOptions,
 } from './types';
 
 let _id = 1;
@@ -231,9 +233,9 @@ export function serializeNodeWithId(
   n: Node,
   doc: Document,
   map: idNodeMap,
-  blockClass: string,
-  skipChild = false,
+  options: serializeOptions = {},
 ): serializedNodeWithId | null {
+  const { blockClass = 'rr-block', skipChild = false, onVisit } = options;
   const _serializedNode = serializeNode(n, doc, blockClass);
   if (!_serializedNode) {
     // TODO: dev only
@@ -245,6 +247,9 @@ export function serializeNodeWithId(
   });
   (n as INode).__sn = serializedNode;
   map[serializedNode.id] = n as INode;
+  if (onVisit) {
+    onVisit(n as INode);
+  }
   let recordChild = !skipChild;
   if (serializedNode.type === NodeType.Element) {
     recordChild = recordChild && !serializedNode.needBlock;
@@ -261,7 +266,7 @@ export function serializeNodeWithId(
         childN,
         doc,
         map,
-        blockClass,
+        options,
       );
       if (serializedChildNode) {
         serializedNode.childNodes.push(serializedChildNode);
@@ -278,7 +283,7 @@ export function serializeNodeWithId(
         iframeDoc,
         iframeDoc,
         map,
-        blockClass,
+        options,
       );
       if (serializedIframeNode) {
         serializedNode.childNodes.push(serializedIframeNode);
@@ -290,11 +295,11 @@ export function serializeNodeWithId(
 
 function snapshot(
   n: Document,
-  blockClass = 'rr-block',
+  options?: snapshotOptions,
 ): [serializedNodeWithId | null, idNodeMap] {
   resetId();
   const idNodeMap: idNodeMap = {};
-  return [serializeNodeWithId(n, n, idNodeMap, blockClass), idNodeMap];
+  return [serializeNodeWithId(n, n, idNodeMap, options), idNodeMap];
 }
 
 export default snapshot;
