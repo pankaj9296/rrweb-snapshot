@@ -13,19 +13,28 @@ function genId(): number {
   return _id++;
 }
 
-export function resetId() {
-  _id = 1;
-}
-
 function getCssRulesString(s: CSSStyleSheet): string | null {
   try {
     const rules = s.rules || s.cssRules;
     return rules
-      ? Array.from(rules).reduce((prev, cur) => (prev += cur.cssText), '')
+      ? Array.from(rules).reduce(
+          (prev, cur) => prev + getCssRuleString(cur),
+          '',
+        )
       : null;
   } catch (error) {
     return null;
   }
+}
+
+function getCssRuleString(rule: CSSRule): string {
+  return isCSSImportRule(rule)
+    ? getCssRulesString(rule.styleSheet) || ''
+    : rule.cssText;
+}
+
+function isCSSImportRule(rule: CSSRule): rule is CSSImportRule {
+  return 'styleSheet' in rule;
 }
 
 function extractOrigin(url: string): string {
@@ -90,6 +99,8 @@ function serializeNode(
   n: Node,
   doc: Document,
   blockClass: string | RegExp,
+  inlineStylesheet: boolean,
+  maskAllInputs: boolean,
 ): serializedNode | false {
   switch (n.nodeType) {
     case n.DOCUMENT_NODE:
@@ -128,7 +139,7 @@ function serializeNode(
         }
       }
       // remote css
-      if (tagName === 'link') {
+      if (tagName === 'link' && inlineStylesheet) {
         const stylesheet = Array.from(doc.styleSheets).find(s => {
           return s.href === (n as HTMLLinkElement).href;
         });
@@ -167,7 +178,7 @@ function serializeNode(
           attributes.type !== 'checkbox' &&
           value
         ) {
-          attributes.value = value;
+          attributes.value = maskAllInputs ? '*'.repeat(value.length) : value;
         } else if ((n as HTMLInputElement).checked) {
           attributes.checked = (n as HTMLInputElement).checked;
         }
@@ -225,23 +236,36 @@ function serializeNode(
 }
 
 export function serializeNodeWithId(
-  n: Node,
+  n: Node | INode,
   doc: Document,
   map: idNodeMap,
   blockClass: string | RegExp,
   skipChild = false,
+  inlineStylesheet = true,
+  maskAllInputs = false,
 ): serializedNodeWithId | null {
-  const _serializedNode = serializeNode(n, doc, blockClass);
+  const _serializedNode = serializeNode(
+    n,
+    doc,
+    blockClass,
+    inlineStylesheet,
+    maskAllInputs,
+  );
   if (!_serializedNode) {
     // TODO: dev only
     console.warn(n, 'not serialized');
     return null;
   }
-  const serializedNode = Object.assign(_serializedNode, {
-    id: genId(),
-  });
+  let id;
+  // Try to reuse the previous id
+  if ('__sn' in n) {
+    id = n.__sn.id;
+  } else {
+    id = genId();
+  }
+  const serializedNode = Object.assign(_serializedNode, { id });
   (n as INode).__sn = serializedNode;
-  map[serializedNode.id] = n as INode;
+  map[id] = n as INode;
   let recordChild = !skipChild;
   if (serializedNode.type === NodeType.Element) {
     recordChild = recordChild && !serializedNode.needBlock;
@@ -259,6 +283,8 @@ export function serializeNodeWithId(
         doc,
         map,
         blockClass,
+        skipChild,
+        inlineStylesheet,
       );
       if (serializedChildNode) {
         serializedNode.childNodes.push(serializedChildNode);
@@ -271,10 +297,22 @@ export function serializeNodeWithId(
 function snapshot(
   n: Document,
   blockClass: string | RegExp = 'rr-block',
+  inlineStylesheet = true,
+  maskAllInputs = false,
 ): [serializedNodeWithId | null, idNodeMap] {
-  resetId();
   const idNodeMap: idNodeMap = {};
-  return [serializeNodeWithId(n, n, idNodeMap, blockClass), idNodeMap];
+  return [
+    serializeNodeWithId(
+      n,
+      n,
+      idNodeMap,
+      blockClass,
+      false,
+      inlineStylesheet,
+      maskAllInputs,
+    ),
+    idNodeMap,
+  ];
 }
 
 export default snapshot;
